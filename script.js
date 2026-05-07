@@ -109,6 +109,10 @@ function setupLights() {
     const fillLight = new THREE.PointLight(0x4466cc, 0.4);
     fillLight.position.set(-3, 2, 4);
     scene.add(fillLight);
+    
+    const backLight = new THREE.PointLight(0xff8866, 0.2);
+    backLight.position.set(0, 2, -5);
+    scene.add(backLight);
 }
 
 // ============================================
@@ -134,6 +138,20 @@ function createGround() {
     ground.position.y = -0.1;
     ground.receiveShadow = true;
     scene.add(ground);
+    
+    // Círculo de sombra
+    const shadowCircleGeometry = new THREE.CircleGeometry(1.5, 16);
+    const shadowCircleMaterial = new THREE.MeshStandardMaterial({
+        color: 0x000000,
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide
+    });
+    const shadowCircle = new THREE.Mesh(shadowCircleGeometry, shadowCircleMaterial);
+    shadowCircle.rotation.x = -Math.PI / 2;
+    shadowCircle.position.y = -0.08;
+    shadowCircle.receiveShadow = true;
+    scene.add(shadowCircle);
 }
 
 // ============================================
@@ -167,108 +185,130 @@ function addEnvironment() {
 function loadCharacter() {
     const loader = new GLTFLoader();
     
-    // Tenta carregar o arquivo personagem.glb
-    loader.load('personagem.glb', 
-        (gltf) => {
-            character = gltf.scene;
-            
-            // Calcula o bounding box para ajustar escala
-            const box = new THREE.Box3().setFromObject(character);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-            
-            // Ajusta escala para ter altura de aproximadamente 2 unidades
-            const targetHeight = 2;
-            const scale = targetHeight / size.y;
-            character.scale.set(scale, scale, scale);
-            
-            // Centraliza o personagem
-            character.position.x = -center.x * scale;
-            character.position.z = -center.z * scale;
-            character.position.y = -box.min.y * scale;
-            
-            // Configura sombras em todas as partes do modelo
-            character.traverse((node) => {
-                if (node.isMesh) {
-                    node.castShadow = true;
-                    node.receiveShadow = true;
-                    // Ajusta materiais para melhor aparência
-                    if (node.material) {
-                        if (Array.isArray(node.material)) {
-                            node.material.forEach(mat => {
-                                mat.roughness = Math.max(0.3, mat.roughness || 0.3);
-                                mat.metalness = Math.min(0.7, mat.metalness || 0.5);
-                            });
-                        } else {
-                            node.material.roughness = Math.max(0.3, node.material.roughness || 0.3);
-                            node.material.metalness = Math.min(0.7, node.material.metalness || 0.5);
-                        }
-                    }
-                }
-            });
-            
-            scene.add(character);
-            
-            // Configura animações se existirem
-            if (gltf.animations && gltf.animations.length > 0) {
-                mixer = new THREE.AnimationMixer(character);
+    // Tentar carregar o arquivo com espaço no nome
+    const arquivosPossiveis = [
+        'personagem (1).glb',
+        'personagem.glb',
+        'personagem(1).glb',
+        'model.glb'
+    ];
+    
+    let tentativaAtual = 0;
+    
+    function tentarCarregar() {
+        if (tentativaAtual >= arquivosPossiveis.length) {
+            console.error('❌ Nenhum arquivo de personagem encontrado');
+            document.getElementById('loading-screen').style.display = 'none';
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('animation-status').textContent = 'Erro: Arquivo não encontrado';
+            return;
+        }
+        
+        const arquivo = arquivosPossiveis[tentativaAtual];
+        console.log(`Tentando carregar: ${arquivo}`);
+        
+        loader.load(arquivo, 
+            (gltf) => {
+                character = gltf.scene;
                 
-                // Mapeia animações por nome
-                gltf.animations.forEach((anim) => {
-                    const name = anim.name.toLowerCase();
-                    console.log('Animação encontrada:', anim.name);
-                    
-                    if (name.includes('idle') || name.includes('stand') || name.includes('parado')) {
-                        animations.idle = mixer.clipAction(anim);
-                    } else if (name.includes('walk') || name.includes('andar')) {
-                        animations.walk = mixer.clipAction(anim);
-                    } else if (name.includes('run') || name.includes('correr') || name.includes('sprint')) {
-                        animations.run = mixer.clipAction(anim);
-                    } else if (name.includes('jump') || name.includes('pular')) {
-                        animations.jump = mixer.clipAction(anim);
+                // Ajusta escala e posição automaticamente
+                const box = new THREE.Box3().setFromObject(character);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                
+                // Altura alvo de 2 unidades
+                const targetHeight = 2;
+                const scale = targetHeight / size.y;
+                character.scale.set(scale, scale, scale);
+                
+                // Centraliza o personagem
+                character.position.x = -center.x * scale;
+                character.position.z = -center.z * scale;
+                character.position.y = -box.min.y * scale;
+                
+                // Configura sombras e materiais
+                character.traverse((node) => {
+                    if (node.isMesh) {
+                        node.castShadow = true;
+                        node.receiveShadow = true;
+                        if (node.material) {
+                            if (Array.isArray(node.material)) {
+                                node.material.forEach(mat => {
+                                    mat.roughness = Math.max(0.3, mat.roughness || 0.3);
+                                    mat.metalness = Math.min(0.7, mat.metalness || 0.5);
+                                });
+                            } else {
+                                node.material.roughness = Math.max(0.3, node.material.roughness || 0.3);
+                                node.material.metalness = Math.min(0.7, node.material.metalness || 0.5);
+                            }
+                        }
                     }
                 });
                 
-                // Se não encontrou idle, usa a primeira animação
-                if (!animations.idle && gltf.animations[0]) {
-                    animations.idle = mixer.clipAction(gltf.animations[0]);
+                scene.add(character);
+                
+                // Configura animações
+                if (gltf.animations && gltf.animations.length > 0) {
+                    mixer = new THREE.AnimationMixer(character);
+                    
+                    gltf.animations.forEach((anim) => {
+                        const name = anim.name.toLowerCase();
+                        console.log('📽️ Animação encontrada:', anim.name);
+                        
+                        if (name.includes('idle') || name.includes('stand') || name.includes('parado')) {
+                            animations.idle = mixer.clipAction(anim);
+                        } else if (name.includes('walk') || name.includes('andar')) {
+                            animations.walk = mixer.clipAction(anim);
+                        } else if (name.includes('run') || name.includes('correr') || name.includes('sprint')) {
+                            animations.run = mixer.clipAction(anim);
+                        } else if (name.includes('jump') || name.includes('pular')) {
+                            animations.jump = mixer.clipAction(anim);
+                        }
+                    });
+                    
+                    // Se tem animações mas não identificou, usa a primeira
+                    if (!animations.idle && gltf.animations[0]) {
+                        animations.idle = mixer.clipAction(gltf.animations[0]);
+                        console.log('🎬 Usando primeira animação como Idle');
+                    }
+                    
+                    // Inicia animação idle
+                    if (animations.idle) {
+                        currentAction = animations.idle;
+                        currentAction.play();
+                    }
+                } else {
+                    console.log('ℹ️ Modelo não possui animações');
                 }
                 
-                // Inicia animação idle
-                if (animations.idle) {
-                    currentAction = animations.idle;
-                    currentAction.play();
-                    document.getElementById('animation-status').textContent = 'Idle';
+                // Remove loading screen
+                const loadingScreen = document.getElementById('loading-screen');
+                loadingScreen.classList.add('fade-out');
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 500);
+                
+                console.log('✅ Personagem carregado com sucesso!');
+                document.getElementById('animation-status').textContent = 'Modelo Carregado ✓';
+            },
+            (progress) => {
+                if (progress.lengthComputable) {
+                    const percent = (progress.loaded / progress.total * 100).toFixed(0);
+                    const loadingText = document.querySelector('#loading-screen p');
+                    if (loadingText) {
+                        loadingText.textContent = `Carregando ${arquivo}... ${percent}%`;
+                    }
                 }
+            },
+            (error) => {
+                console.warn(`❌ Falha ao carregar ${arquivo}:`, error);
+                tentativaAtual++;
+                tentarCarregar();
             }
-            
-            // Remove loading screen
-            const loadingScreen = document.getElementById('loading-screen');
-            loadingScreen.classList.add('fade-out');
-            setTimeout(() => {
-                loadingScreen.style.display = 'none';
-            }, 500);
-            
-            console.log('✅ Personagem carregado com sucesso!');
-            document.getElementById('animation-status').textContent = 'Modelo Carregado';
-        },
-        (progress) => {
-            // Progresso do loading
-            if (progress.lengthComputable) {
-                const percent = (progress.loaded / progress.total * 100).toFixed(0);
-                const loadingText = document.querySelector('#loading-screen p');
-                if (loadingText) {
-                    loadingText.textContent = `Carregando personagem... ${percent}%`;
-                }
-            }
-        },
-        (error) => {
-            console.error('❌ Erro ao carregar personagem:', error);
-            document.getElementById('loading-screen').style.display = 'none';
-            document.getElementById('error-message').style.display = 'block';
-            document.getElementById('animation-status').textContent = 'Erro no carregamento';
-        }
-    );
+        );
+    }
+    
+    tentarCarregar();
 }
 
 // ============================================
@@ -388,10 +428,10 @@ function updateAnimation() {
         statusText = 'Pulando';
     } else if (currentSpeed > RUN_SPEED * 0.7) {
         targetAnim = animations.run || animations.walk || animations.idle;
-        statusText = 'Correndo';
+        statusText = 'Correndo 🏃';
     } else if (currentSpeed > 0.1) {
         targetAnim = animations.walk || animations.idle;
-        statusText = 'Andando';
+        statusText = 'Andando 🚶';
     } else {
         targetAnim = animations.idle;
         statusText = 'Parado';
