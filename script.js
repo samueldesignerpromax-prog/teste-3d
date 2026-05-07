@@ -180,135 +180,237 @@ function addEnvironment() {
 }
 
 // ============================================
-// CARREGAR PERSONAGEM
+// CARREGAR PERSONAGEM (suporte a JSON/GLB)
 // ============================================
 function loadCharacter() {
     const loader = new GLTFLoader();
     
-    // Tentar carregar o arquivo com espaço no nome
-    const arquivosPossiveis = [
-        'personagem (1).glb',
-        'personagem.glb',
-        'personagem(1).glb',
-        'model.glb'
-    ];
+    // Primeiro tenta carregar como JSON (que contém o GLB em base64)
+    fetch('personagem.glb.json')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Arquivo JSON não encontrado');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('📦 JSON carregado, procurando dados do GLB...');
+            
+            // Procura pelo campo que contém os dados base64 do GLB
+            let glbBase64 = null;
+            
+            // Tenta encontrar em campos comuns
+            if (data.glb) {
+                glbBase64 = data.glb;
+            } else if (data.data) {
+                glbBase64 = data.data;
+            } else if (data.buffer) {
+                glbBase64 = data.buffer;
+            } else if (data.gltf) {
+                glbBase64 = data.gltf;
+            } else if (typeof data === 'string') {
+                glbBase64 = data;
+            } else {
+                // Procura recursivamente por qualquer propriedade que contenha base64
+                const findBase64 = (obj, depth = 0) => {
+                    if (depth > 5) return null;
+                    for (let key in obj) {
+                        if (typeof obj[key] === 'string') {
+                            const str = obj[key];
+                            if (str.includes('data:application/octet-stream;base64') || 
+                                str.match(/^[A-Za-z0-9+/]+={0,2}$/) && str.length > 100) {
+                                return str;
+                            }
+                        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                            const result = findBase64(obj[key], depth + 1);
+                            if (result) return result;
+                        }
+                    }
+                    return null;
+                };
+                glbBase64 = findBase64(data);
+            }
+            
+            if (glbBase64) {
+                console.log('✅ Dados base64 encontrados, convertendo para GLB...');
+                
+                // Remove o prefixo se existir
+                let base64String = glbBase64;
+                if (base64String.includes('base64,')) {
+                    base64String = base64String.split('base64,')[1];
+                }
+                
+                // Converte base64 para ArrayBuffer
+                const binaryString = atob(base64String);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const glbBuffer = bytes.buffer;
+                
+                // Carrega o GLB a partir do ArrayBuffer
+                loader.parse(glbBuffer, '', (gltf) => {
+                    processLoadedModel(gltf);
+                }, (error) => {
+                    console.error('❌ Erro ao parsear GLB:', error);
+                    createPlaceholderCharacter();
+                });
+            } else {
+                console.warn('⚠️ Nenhum dado base64 encontrado no JSON');
+                createPlaceholderCharacter();
+            }
+        })
+        .catch(error => {
+            console.warn('❌ Não foi possível carregar personagem.glb.json:', error);
+            // Tenta carregar como GLB normal
+            loader.load('personagem.glb', 
+                (gltf) => processLoadedModel(gltf),
+                undefined,
+                () => {
+                    console.warn('⚠️ Também não encontrou personagem.glb');
+                    createPlaceholderCharacter();
+                }
+            );
+        });
+}
+
+// ============================================
+// PROCESSAR MODELO CARREGADO
+// ============================================
+function processLoadedModel(gltf) {
+    character = gltf.scene;
     
-    let tentativaAtual = 0;
+    // Ajusta escala e posição automaticamente
+    const box = new THREE.Box3().setFromObject(character);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
     
-    function tentarCarregar() {
-        if (tentativaAtual >= arquivosPossiveis.length) {
-            console.error('❌ Nenhum arquivo de personagem encontrado');
-            document.getElementById('loading-screen').style.display = 'none';
-            document.getElementById('error-message').style.display = 'block';
-            document.getElementById('animation-status').textContent = 'Erro: Arquivo não encontrado';
-            return;
+    // Altura alvo de 2 unidades
+    const targetHeight = 2;
+    const scale = targetHeight / size.y;
+    character.scale.set(scale, scale, scale);
+    
+    // Centraliza o personagem
+    character.position.x = -center.x * scale;
+    character.position.z = -center.z * scale;
+    character.position.y = -box.min.y * scale;
+    
+    // Configura sombras e materiais
+    character.traverse((node) => {
+        if (node.isMesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+            if (node.material) {
+                if (Array.isArray(node.material)) {
+                    node.material.forEach(mat => {
+                        mat.roughness = Math.max(0.3, mat.roughness || 0.3);
+                        mat.metalness = Math.min(0.7, mat.metalness || 0.5);
+                    });
+                } else {
+                    node.material.roughness = Math.max(0.3, node.material.roughness || 0.3);
+                    node.material.metalness = Math.min(0.7, node.material.metalness || 0.5);
+                }
+            }
+        }
+    });
+    
+    scene.add(character);
+    
+    // Configura animações
+    if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(character);
+        
+        gltf.animations.forEach((anim) => {
+            const name = anim.name.toLowerCase();
+            console.log('📽️ Animação encontrada:', anim.name);
+            
+            if (name.includes('idle') || name.includes('stand') || name.includes('parado')) {
+                animations.idle = mixer.clipAction(anim);
+            } else if (name.includes('walk') || name.includes('andar')) {
+                animations.walk = mixer.clipAction(anim);
+            } else if (name.includes('run') || name.includes('correr') || name.includes('sprint')) {
+                animations.run = mixer.clipAction(anim);
+            } else if (name.includes('jump') || name.includes('pular')) {
+                animations.jump = mixer.clipAction(anim);
+            }
+        });
+        
+        if (!animations.idle && gltf.animations[0]) {
+            animations.idle = mixer.clipAction(gltf.animations[0]);
         }
         
-        const arquivo = arquivosPossiveis[tentativaAtual];
-        console.log(`Tentando carregar: ${arquivo}`);
-        
-        loader.load(arquivo, 
-            (gltf) => {
-                character = gltf.scene;
-                
-                // Ajusta escala e posição automaticamente
-                const box = new THREE.Box3().setFromObject(character);
-                const size = box.getSize(new THREE.Vector3());
-                const center = box.getCenter(new THREE.Vector3());
-                
-                // Altura alvo de 2 unidades
-                const targetHeight = 2;
-                const scale = targetHeight / size.y;
-                character.scale.set(scale, scale, scale);
-                
-                // Centraliza o personagem
-                character.position.x = -center.x * scale;
-                character.position.z = -center.z * scale;
-                character.position.y = -box.min.y * scale;
-                
-                // Configura sombras e materiais
-                character.traverse((node) => {
-                    if (node.isMesh) {
-                        node.castShadow = true;
-                        node.receiveShadow = true;
-                        if (node.material) {
-                            if (Array.isArray(node.material)) {
-                                node.material.forEach(mat => {
-                                    mat.roughness = Math.max(0.3, mat.roughness || 0.3);
-                                    mat.metalness = Math.min(0.7, mat.metalness || 0.5);
-                                });
-                            } else {
-                                node.material.roughness = Math.max(0.3, node.material.roughness || 0.3);
-                                node.material.metalness = Math.min(0.7, node.material.metalness || 0.5);
-                            }
-                        }
-                    }
-                });
-                
-                scene.add(character);
-                
-                // Configura animações
-                if (gltf.animations && gltf.animations.length > 0) {
-                    mixer = new THREE.AnimationMixer(character);
-                    
-                    gltf.animations.forEach((anim) => {
-                        const name = anim.name.toLowerCase();
-                        console.log('📽️ Animação encontrada:', anim.name);
-                        
-                        if (name.includes('idle') || name.includes('stand') || name.includes('parado')) {
-                            animations.idle = mixer.clipAction(anim);
-                        } else if (name.includes('walk') || name.includes('andar')) {
-                            animations.walk = mixer.clipAction(anim);
-                        } else if (name.includes('run') || name.includes('correr') || name.includes('sprint')) {
-                            animations.run = mixer.clipAction(anim);
-                        } else if (name.includes('jump') || name.includes('pular')) {
-                            animations.jump = mixer.clipAction(anim);
-                        }
-                    });
-                    
-                    // Se tem animações mas não identificou, usa a primeira
-                    if (!animations.idle && gltf.animations[0]) {
-                        animations.idle = mixer.clipAction(gltf.animations[0]);
-                        console.log('🎬 Usando primeira animação como Idle');
-                    }
-                    
-                    // Inicia animação idle
-                    if (animations.idle) {
-                        currentAction = animations.idle;
-                        currentAction.play();
-                    }
-                } else {
-                    console.log('ℹ️ Modelo não possui animações');
-                }
-                
-                // Remove loading screen
-                const loadingScreen = document.getElementById('loading-screen');
-                loadingScreen.classList.add('fade-out');
-                setTimeout(() => {
-                    loadingScreen.style.display = 'none';
-                }, 500);
-                
-                console.log('✅ Personagem carregado com sucesso!');
-                document.getElementById('animation-status').textContent = 'Modelo Carregado ✓';
-            },
-            (progress) => {
-                if (progress.lengthComputable) {
-                    const percent = (progress.loaded / progress.total * 100).toFixed(0);
-                    const loadingText = document.querySelector('#loading-screen p');
-                    if (loadingText) {
-                        loadingText.textContent = `Carregando ${arquivo}... ${percent}%`;
-                    }
-                }
-            },
-            (error) => {
-                console.warn(`❌ Falha ao carregar ${arquivo}:`, error);
-                tentativaAtual++;
-                tentarCarregar();
-            }
-        );
+        if (animations.idle) {
+            currentAction = animations.idle;
+            currentAction.play();
+        }
     }
     
-    tentarCarregar();
+    // Remove loading screen
+    const loadingScreen = document.getElementById('loading-screen');
+    loadingScreen.classList.add('fade-out');
+    setTimeout(() => {
+        loadingScreen.style.display = 'none';
+    }, 500);
+    
+    console.log('✅ Personagem carregado com sucesso!');
+    document.getElementById('animation-status').textContent = 'Modelo Carregado ✓';
+}
+
+// ============================================
+// CRIAR PERSONAGEM SUBSTITUTO (caso falhe)
+// ============================================
+function createPlaceholderCharacter() {
+    console.log('🎨 Criando personagem substituto...');
+    const group = new THREE.Group();
+    
+    // Corpo
+    const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.6);
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, metalness: 0.3, roughness: 0.4 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.position.y = 0.6;
+    body.castShadow = true;
+    group.add(body);
+    
+    // Cabeça
+    const headGeo = new THREE.SphereGeometry(0.45, 32, 32);
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xffccaa });
+    const head = new THREE.Mesh(headGeo, headMat);
+    head.position.y = 1.25;
+    head.castShadow = true;
+    group.add(head);
+    
+    // Olhos
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), eyeMat);
+    leftEye.position.set(-0.18, 1.35, 0.45);
+    group.add(leftEye);
+    
+    const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), eyeMat);
+    rightEye.position.set(0.18, 1.35, 0.45);
+    group.add(rightEye);
+    
+    // Pupilas
+    const pupilMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+    const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 16), pupilMat);
+    leftPupil.position.set(-0.18, 1.33, 0.52);
+    group.add(leftPupil);
+    
+    const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 16), pupilMat);
+    rightPupil.position.set(0.18, 1.33, 0.52);
+    group.add(rightPupil);
+    
+    group.position.y = 0;
+    character = group;
+    scene.add(character);
+    
+    const loadingScreen = document.getElementById('loading-screen');
+    loadingScreen.classList.add('fade-out');
+    setTimeout(() => {
+        loadingScreen.style.display = 'none';
+    }, 500);
+    
+    document.getElementById('animation-status').textContent = 'Modo Demo';
+    console.log('✅ Personagem substituto criado!');
 }
 
 // ============================================
@@ -359,7 +461,6 @@ function updateMovement(deltaTime) {
     const isRunning = keyState.ShiftLeft;
     const currentMaxSpeed = isRunning ? RUN_SPEED : WALK_SPEED;
     
-    // Direção relativa à câmera
     const cameraDirection = camera.getWorldDirection(new THREE.Vector3());
     const cameraRight = new THREE.Vector3().crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
     const cameraForward = new THREE.Vector3(cameraDirection.x, 0, cameraDirection.z).normalize();
@@ -379,7 +480,6 @@ function updateMovement(deltaTime) {
         character.position.x += moveVector.x * currentMaxSpeed * deltaTime;
         character.position.z += moveVector.z * currentMaxSpeed * deltaTime;
         
-        // Rotação suave
         targetRotation = Math.atan2(moveVector.x, moveVector.z);
         let diff = targetRotation - characterRotation;
         while (diff > Math.PI) diff -= Math.PI * 2;
@@ -392,7 +492,6 @@ function updateMovement(deltaTime) {
         currentSpeed = 0;
     }
     
-    // Gravidade e pulo
     if (!isGrounded) {
         jumpVelocity -= GRAVITY * deltaTime;
         character.position.y += jumpVelocity * deltaTime;
@@ -404,12 +503,10 @@ function updateMovement(deltaTime) {
         }
     }
     
-    // Limites do mapa
     const limit = 13;
     character.position.x = Math.max(-limit, Math.min(limit, character.position.x));
     character.position.z = Math.max(-limit, Math.min(limit, character.position.z));
     
-    // Atualiza UI
     updateUI();
     updateAnimation();
 }
