@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Controle de Personagem 3D - Three.js</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="loading-screen">
+        <div class="loader"></div>
+        <p>Carregando personagem...</p>
+    </div>
+    
+    <div id="error-message" style="display: none;">
+        <h2>⚠️ Erro ao carregar personagem</h2>
+        <p>O arquivo <strong>personagem.glb</strong> não foi encontrado.</p>
+        <p>Certifique-se de que o arquivo está na mesma pasta do projeto.</p>
+    </div>
+    
+    <div id="controls-info">
+        <h3>🎮 Controles</h3>
+        <p>WASD - Movimentar</p>
+        <p>Espaço - Pular</p>
+        <p>Shift - Correr</p>
+    </div>
+    
+    <div id="status">
+        <div>Status: <span id="animation-status">Carregando...</span></div>
+        <div>Posição: <span id="position-status">0, 0, 0</span></div>
+    </div>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script src="script.js" type="module"></script>
+</body>
+</html>
