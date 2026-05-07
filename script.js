@@ -10,7 +10,6 @@ let character = null;
 let mixer = null;
 let animations = {};
 let currentAction = null;
-let isModelLoaded = false;
 
 // Controles de movimento
 const keyState = {
@@ -19,37 +18,33 @@ const keyState = {
 };
 
 let moveDirection = new THREE.Vector3();
-let velocity = new THREE.Vector3();
 let isGrounded = true;
 let jumpVelocity = 0;
 let currentSpeed = 0;
 let characterRotation = 0;
 let targetRotation = 0;
 
-// Configurações de movimento
+// Configurações
 const WALK_SPEED = 3.5;
 const RUN_SPEED = 7;
 const JUMP_FORCE = 8;
 const GRAVITY = 20;
 const ROTATION_LERP_SPEED = 0.15;
 
-// Objeto substituto (caso o modelo não carregue)
-let placeholderCube = null;
-
 // ============================================
-// INICIALIZAÇÃO DA CENA
+// INICIALIZAÇÃO
 // ============================================
 function init() {
-    // Criar cena
+    // Cena
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0a2a);
     scene.fog = new THREE.FogExp2(0x0a0a2a, 0.008);
     
-    // Criar câmera
+    // Câmera
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(5, 4, 8);
     
-    // Criar renderizador
+    // Renderer
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;
@@ -57,7 +52,7 @@ function init() {
     renderer.setPixelRatio(window.devicePixelRatio);
     document.body.appendChild(renderer.domElement);
     
-    // Configurar controles
+    // Controls
     controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
@@ -68,36 +63,35 @@ function init() {
     controls.minDistance = 3;
     controls.maxDistance = 15;
     
-    // Configurar iluminação
+    // Luzes
     setupLights();
     
-    // Criar chão e ambiente
+    // Chão
     createGround();
-    addEnvironmentDetails();
     
-    // Tentar carregar personagem
+    // Ambiente
+    addEnvironment();
+    
+    // Carregar personagem
     loadCharacter();
     
-    // Configurar eventos
+    // Eventos
     setupKeyboardEvents();
     
-    // Iniciar animação
+    // Animação
     animate();
 }
 
 // ============================================
-// CONFIGURAÇÃO DE LUZES
+// LUZES
 // ============================================
 function setupLights() {
-    // Luz ambiente
     const ambientLight = new THREE.AmbientLight(0x404060, 0.6);
     scene.add(ambientLight);
     
-    // Luz hemisphere
     const hemisphereLight = new THREE.HemisphereLight(0x88aaff, 0x442200, 0.7);
     scene.add(hemisphereLight);
     
-    // Luz direcional principal
     const directionalLight = new THREE.DirectionalLight(0xfff5e6, 1.2);
     directionalLight.position.set(5, 10, 7);
     directionalLight.castShadow = true;
@@ -112,29 +106,21 @@ function setupLights() {
     directionalLight.shadow.camera.bottom = -10;
     scene.add(directionalLight);
     
-    // Luz de preenchimento
     const fillLight = new THREE.PointLight(0x4466cc, 0.4);
     fillLight.position.set(-3, 2, 4);
     scene.add(fillLight);
-    
-    // Luz de chão
-    const groundLight = new THREE.PointLight(0xffaa66, 0.3);
-    groundLight.position.set(0, 1, 0);
-    scene.add(groundLight);
 }
 
 // ============================================
-// CRIAÇÃO DO CHÃO
+// CHÃO
 // ============================================
 function createGround() {
-    // Grid helper
     const gridHelper = new THREE.GridHelper(30, 20, 0x88aaff, 0x335588);
     gridHelper.position.y = -0.05;
     gridHelper.material.transparent = true;
     gridHelper.material.opacity = 0.3;
     scene.add(gridHelper);
     
-    // Chão visível
     const groundGeometry = new THREE.PlaneGeometry(30, 30);
     const groundMaterial = new THREE.MeshStandardMaterial({ 
         color: 0x2a2a4a,
@@ -151,10 +137,9 @@ function createGround() {
 }
 
 // ============================================
-// ELEMENTOS DECORATIVOS
+// AMBIENTE
 // ============================================
-function addEnvironmentDetails() {
-    // Partículas decorativas
+function addEnvironment() {
     const particleCount = 300;
     const particlesGeometry = new THREE.BufferGeometry();
     const particlesPositions = new Float32Array(particleCount * 3);
@@ -174,217 +159,120 @@ function addEnvironmentDetails() {
     });
     const particles = new THREE.Points(particlesGeometry, particlesMaterial);
     scene.add(particles);
-    
-    // Adicionar alguns cubos decorativos
-    const colors = [0xff3366, 0x33ff66, 0x3366ff];
-    for (let i = 0; i < 20; i++) {
-        const box = new THREE.Mesh(
-            new THREE.BoxGeometry(0.3, 0.3, 0.3),
-            new THREE.MeshStandardMaterial({ color: colors[i % colors.length], emissive: 0x221133 })
-        );
-        box.position.x = (Math.random() - 0.5) * 20;
-        box.position.z = (Math.random() - 0.5) * 20;
-        box.position.y = -0.1;
-        box.castShadow = true;
-        box.receiveShadow = true;
-        scene.add(box);
-    }
 }
 
 // ============================================
-// CRIAÇÃO DE PERSONAGEM SUBSTITUTO
-// ============================================
-function createPlaceholderCharacter() {
-    const group = new THREE.Group();
-    
-    // Corpo
-    const bodyGeo = new THREE.BoxGeometry(0.8, 1.2, 0.6);
-    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, metalness: 0.3, roughness: 0.4 });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    body.position.y = 0.6;
-    body.castShadow = true;
-    body.receiveShadow = true;
-    group.add(body);
-    
-    // Cabeça
-    const headGeo = new THREE.SphereGeometry(0.45, 32, 32);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xffccaa, metalness: 0.1, roughness: 0.3 });
-    const head = new THREE.Mesh(headGeo, headMat);
-    head.position.y = 1.25;
-    head.castShadow = true;
-    group.add(head);
-    
-    // Olhos
-    const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
-    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), eyeMat);
-    leftEye.position.set(-0.18, 1.35, 0.45);
-    leftEye.castShadow = true;
-    group.add(leftEye);
-    
-    const rightEye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 16), eyeMat);
-    rightEye.position.set(0.18, 1.35, 0.45);
-    rightEye.castShadow = true;
-    group.add(rightEye);
-    
-    // Pupilas
-    const pupilMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
-    const leftPupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 16), pupilMat);
-    leftPupil.position.set(-0.18, 1.33, 0.52);
-    group.add(leftPupil);
-    
-    const rightPupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 16), pupilMat);
-    rightPupil.position.set(0.18, 1.33, 0.52);
-    group.add(rightPupil);
-    
-    // Braços
-    const armMat = new THREE.MeshStandardMaterial({ color: 0x44aaff });
-    const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.35), armMat);
-    leftArm.position.set(-0.55, 0.9, 0);
-    leftArm.castShadow = true;
-    group.add(leftArm);
-    
-    const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.35), armMat);
-    rightArm.position.set(0.55, 0.9, 0);
-    rightArm.castShadow = true;
-    group.add(rightArm);
-    
-    // Pernas
-    const legMat = new THREE.MeshStandardMaterial({ color: 0x3388cc });
-    const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.4), legMat);
-    leftLeg.position.set(-0.25, 0.35, 0);
-    leftLeg.castShadow = true;
-    group.add(leftLeg);
-    
-    const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.8, 0.4), legMat);
-    rightLeg.position.set(0.25, 0.35, 0);
-    rightLeg.castShadow = true;
-    group.add(rightLeg);
-    
-    group.position.y = 0;
-    group.castShadow = true;
-    
-    return group;
-}
-
-// ============================================
-// CARREGAMENTO DO PERSONAGEM
+// CARREGAR PERSONAGEM
 // ============================================
 function loadCharacter() {
     const loader = new GLTFLoader();
     
-    // Tentar vários nomes de arquivo possíveis
-    const possibleFiles = [
-        'personagem.glb',
-        'personagem.glb',
-        'personagem.glb',
-        'model.glb',
-        'character.glb'
-    ];
-    
-    let attemptIndex = 0;
-    
-    function tryLoad() {
-        if (attemptIndex >= possibleFiles.length) {
-            console.warn('Nenhum modelo 3D encontrado. Usando personagem substituto.');
-            character = createPlaceholderCharacter();
+    // Tenta carregar o arquivo personagem.glb
+    loader.load('personagem.glb', 
+        (gltf) => {
+            character = gltf.scene;
+            
+            // Calcula o bounding box para ajustar escala
+            const box = new THREE.Box3().setFromObject(character);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            
+            // Ajusta escala para ter altura de aproximadamente 2 unidades
+            const targetHeight = 2;
+            const scale = targetHeight / size.y;
+            character.scale.set(scale, scale, scale);
+            
+            // Centraliza o personagem
+            character.position.x = -center.x * scale;
+            character.position.z = -center.z * scale;
+            character.position.y = -box.min.y * scale;
+            
+            // Configura sombras em todas as partes do modelo
+            character.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                    // Ajusta materiais para melhor aparência
+                    if (node.material) {
+                        if (Array.isArray(node.material)) {
+                            node.material.forEach(mat => {
+                                mat.roughness = Math.max(0.3, mat.roughness || 0.3);
+                                mat.metalness = Math.min(0.7, mat.metalness || 0.5);
+                            });
+                        } else {
+                            node.material.roughness = Math.max(0.3, node.material.roughness || 0.3);
+                            node.material.metalness = Math.min(0.7, node.material.metalness || 0.5);
+                        }
+                    }
+                }
+            });
+            
             scene.add(character);
-            isModelLoaded = true;
             
-            const loadingScreen = document.getElementById('loading-screen');
-            if (loadingScreen) {
-                loadingScreen.classList.add('fade-out');
-                setTimeout(() => {
-                    loadingScreen.style.display = 'none';
-                }, 500);
-            }
-            
-            document.getElementById('animation-status').textContent = 'Demo (placeholder)';
-            return;
-        }
-        
-        const fileToTry = possibleFiles[attemptIndex];
-        console.log(`Tentando carregar: ${fileToTry}`);
-        
-        loader.load(fileToTry,
-            (gltf) => {
-                character = gltf.scene;
+            // Configura animações se existirem
+            if (gltf.animations && gltf.animations.length > 0) {
+                mixer = new THREE.AnimationMixer(character);
                 
-                // Ajustar escala
-                const box = new THREE.Box3().setFromObject(character);
-                const size = box.getSize(new THREE.Vector3());
-                const maxDim = Math.max(size.x, size.y, size.z);
-                const scale = 2.2 / maxDim;
-                character.scale.set(scale, scale, scale);
-                
-                // Centralizar
-                box.setFromObject(character);
-                const center = box.getCenter(new THREE.Vector3());
-                character.position.x = -center.x;
-                character.position.z = -center.z;
-                character.position.y = -box.min.y;
-                
-                // Configurar sombras
-                character.traverse((node) => {
-                    if (node.isMesh) {
-                        node.castShadow = true;
-                        node.receiveShadow = true;
+                // Mapeia animações por nome
+                gltf.animations.forEach((anim) => {
+                    const name = anim.name.toLowerCase();
+                    console.log('Animação encontrada:', anim.name);
+                    
+                    if (name.includes('idle') || name.includes('stand') || name.includes('parado')) {
+                        animations.idle = mixer.clipAction(anim);
+                    } else if (name.includes('walk') || name.includes('andar')) {
+                        animations.walk = mixer.clipAction(anim);
+                    } else if (name.includes('run') || name.includes('correr') || name.includes('sprint')) {
+                        animations.run = mixer.clipAction(anim);
+                    } else if (name.includes('jump') || name.includes('pular')) {
+                        animations.jump = mixer.clipAction(anim);
                     }
                 });
                 
-                scene.add(character);
-                isModelLoaded = true;
-                
-                // Configurar animações
-                if (gltf.animations && gltf.animations.length > 0) {
-                    mixer = new THREE.AnimationMixer(character);
-                    gltf.animations.forEach((anim) => {
-                        const name = anim.name.toLowerCase();
-                        if (name.includes('idle')) animations.idle = mixer.clipAction(anim);
-                        else if (name.includes('walk')) animations.walk = mixer.clipAction(anim);
-                        else if (name.includes('run')) animations.run = mixer.clipAction(anim);
-                    });
-                    
-                    if (animations.idle) {
-                        currentAction = animations.idle;
-                        currentAction.play();
-                    }
+                // Se não encontrou idle, usa a primeira animação
+                if (!animations.idle && gltf.animations[0]) {
+                    animations.idle = mixer.clipAction(gltf.animations[0]);
                 }
                 
-                // Esconder loading
-                const loadingScreen = document.getElementById('loading-screen');
-                if (loadingScreen) {
-                    loadingScreen.classList.add('fade-out');
-                    setTimeout(() => {
-                        loadingScreen.style.display = 'none';
-                    }, 500);
+                // Inicia animação idle
+                if (animations.idle) {
+                    currentAction = animations.idle;
+                    currentAction.play();
+                    document.getElementById('animation-status').textContent = 'Idle';
                 }
-                
-                console.log(`Modelo carregado com sucesso: ${fileToTry}`);
-                document.getElementById('animation-status').textContent = 'Modelo 3D Carregado';
-            },
-            (progress) => {
-                // Progresso
-                if (progress.lengthComputable) {
-                    const percent = (progress.loaded / progress.total * 100).toFixed(0);
-                    const loadingText = document.querySelector('#loading-screen p');
-                    if (loadingText) {
-                        loadingText.textContent = `Carregando ${fileToTry}... ${percent}%`;
-                    }
-                }
-            },
-            (error) => {
-                console.warn(`Falha ao carregar ${fileToTry}:`, error);
-                attemptIndex++;
-                tryLoad();
             }
-        );
-    }
-    
-    tryLoad();
+            
+            // Remove loading screen
+            const loadingScreen = document.getElementById('loading-screen');
+            loadingScreen.classList.add('fade-out');
+            setTimeout(() => {
+                loadingScreen.style.display = 'none';
+            }, 500);
+            
+            console.log('✅ Personagem carregado com sucesso!');
+            document.getElementById('animation-status').textContent = 'Modelo Carregado';
+        },
+        (progress) => {
+            // Progresso do loading
+            if (progress.lengthComputable) {
+                const percent = (progress.loaded / progress.total * 100).toFixed(0);
+                const loadingText = document.querySelector('#loading-screen p');
+                if (loadingText) {
+                    loadingText.textContent = `Carregando personagem... ${percent}%`;
+                }
+            }
+        },
+        (error) => {
+            console.error('❌ Erro ao carregar personagem:', error);
+            document.getElementById('loading-screen').style.display = 'none';
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('animation-status').textContent = 'Erro no carregamento';
+        }
+    );
 }
 
 // ============================================
-// EVENTOS DE TECLADO
+// CONTROLES DE TECLADO
 // ============================================
 function setupKeyboardEvents() {
     window.addEventListener('keydown', (e) => {
@@ -393,7 +281,7 @@ function setupKeyboardEvents() {
             keyState[code] = true;
         }
         
-        if (code === 'Space' && isGrounded && isModelLoaded) {
+        if (code === 'Space' && isGrounded && character) {
             e.preventDefault();
             jumpVelocity = JUMP_FORCE;
             isGrounded = false;
@@ -402,6 +290,12 @@ function setupKeyboardEvents() {
                 if (currentAction) currentAction.fadeOut(0.2);
                 currentAction = animations.jump;
                 currentAction.reset().fadeIn(0.2).play();
+                setTimeout(() => {
+                    if (currentAction === animations.jump && isGrounded) {
+                        currentAction.fadeOut(0.2);
+                        updateAnimation();
+                    }
+                }, 500);
             }
         }
     });
@@ -415,17 +309,17 @@ function setupKeyboardEvents() {
 }
 
 // ============================================
-// ATUALIZAÇÃO DE MOVIMENTO
+// MOVIMENTO
 // ============================================
 function updateMovement(deltaTime) {
-    if (!character || !isModelLoaded) return;
+    if (!character) return;
     
     moveDirection.set(0, 0, 0);
     
     const isRunning = keyState.ShiftLeft;
     const currentMaxSpeed = isRunning ? RUN_SPEED : WALK_SPEED;
     
-    // Movimento relativo à câmera
+    // Direção relativa à câmera
     const cameraDirection = camera.getWorldDirection(new THREE.Vector3());
     const cameraRight = new THREE.Vector3().crossVectors(cameraDirection, new THREE.Vector3(0, 1, 0)).normalize();
     const cameraForward = new THREE.Vector3(cameraDirection.x, 0, cameraDirection.z).normalize();
@@ -445,9 +339,12 @@ function updateMovement(deltaTime) {
         character.position.x += moveVector.x * currentMaxSpeed * deltaTime;
         character.position.z += moveVector.z * currentMaxSpeed * deltaTime;
         
-        // Rotação
+        // Rotação suave
         targetRotation = Math.atan2(moveVector.x, moveVector.z);
-        characterRotation = lerpAngle(characterRotation, targetRotation, ROTATION_LERP_SPEED);
+        let diff = targetRotation - characterRotation;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        characterRotation += diff * ROTATION_LERP_SPEED;
         character.rotation.y = characterRotation;
         
         currentSpeed = currentMaxSpeed;
@@ -455,7 +352,7 @@ function updateMovement(deltaTime) {
         currentSpeed = 0;
     }
     
-    // Pulo e gravidade
+    // Gravidade e pulo
     if (!isGrounded) {
         jumpVelocity -= GRAVITY * deltaTime;
         character.position.y += jumpVelocity * deltaTime;
@@ -467,46 +364,40 @@ function updateMovement(deltaTime) {
         }
     }
     
-    // Limites
+    // Limites do mapa
     const limit = 13;
     character.position.x = Math.max(-limit, Math.min(limit, character.position.x));
     character.position.z = Math.max(-limit, Math.min(limit, character.position.z));
     
-    // Atualizar UI
-    if (character) {
-        const pos = character.position;
-        document.getElementById('position-status').textContent = 
-            `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`;
-    }
-    
-    // Atualizar animação
+    // Atualiza UI
+    updateUI();
     updateAnimation();
 }
 
 // ============================================
-// ATUALIZAÇÃO DE ANIMAÇÃO
+// ANIMAÇÕES
 // ============================================
 function updateAnimation() {
     if (!mixer || !animations.idle) return;
     
     let targetAnim = null;
-    let animStatus = 'Idle';
+    let statusText = 'Idle';
     
     if (!isGrounded) {
         targetAnim = animations.jump || animations.idle;
-        animStatus = 'Pulando';
+        statusText = 'Pulando';
     } else if (currentSpeed > RUN_SPEED * 0.7) {
         targetAnim = animations.run || animations.walk || animations.idle;
-        animStatus = 'Correndo';
+        statusText = 'Correndo';
     } else if (currentSpeed > 0.1) {
         targetAnim = animations.walk || animations.idle;
-        animStatus = 'Andando';
+        statusText = 'Andando';
     } else {
         targetAnim = animations.idle;
-        animStatus = 'Parado';
+        statusText = 'Parado';
     }
     
-    document.getElementById('animation-status').textContent = animStatus;
+    document.getElementById('animation-status').textContent = statusText;
     
     if (targetAnim && currentAction !== targetAnim) {
         if (currentAction) currentAction.fadeOut(0.2);
@@ -516,27 +407,27 @@ function updateAnimation() {
 }
 
 // ============================================
-// FUNÇÃO AUXILIAR
+// UI
 // ============================================
-function lerpAngle(a, b, t) {
-    const delta = ((b - a) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
-    if (delta > Math.PI) {
-        return a - (Math.PI * 2 - delta) * t;
+function updateUI() {
+    if (character) {
+        const pos = character.position;
+        document.getElementById('position-status').textContent = 
+            `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`;
     }
-    return a + delta * t;
 }
 
 // ============================================
-// ATUALIZAÇÃO DA CÂMERA
+// CÂMERA
 // ============================================
 function updateCamera() {
-    if (character && isModelLoaded && controls) {
+    if (character && controls) {
         controls.target.lerp(character.position, 0.1);
     }
 }
 
 // ============================================
-// LOOP DE ANIMAÇÃO
+// LOOP PRINCIPAL
 // ============================================
 let lastTime = performance.now();
 
@@ -560,13 +451,13 @@ function animate() {
 // ============================================
 // RESPONSIVIDADE
 // ============================================
-window.addEventListener('resize', onWindowResize);
-
-function onWindowResize() {
+window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-}
+});
 
-// Iniciar
+// ============================================
+// INICIAR
+// ============================================
 init();
